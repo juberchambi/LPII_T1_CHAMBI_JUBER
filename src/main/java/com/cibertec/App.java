@@ -1,99 +1,131 @@
 package com.cibertec;
 
-import java.util.Scanner;
-
-import com.cibertec.model.Cliente;
-import com.cibertec.model.Pelicula;
+import com.cibertec.model.*;
 import com.cibertec.util.JPAUtil;
-
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityTransaction;
 
-import org.h2.tools.Server;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Scanner;
 
 public class App {
 
-    private static Server h2Server;
-
-    private static Server iniciarServidorH2() {
-        try {
-            Server webServer = Server.createWebServer("-web", "-webAllowOthers", "-webPort", "8082").start();
-            System.out.println("H2 Web Console disponible en: http://localhost:8082");
-            System.out.println("JDBC URL: jdbc:h2:mem:LPII_T1_CHAMBI_JUBER");
-            System.out.println("Usuario: sa | Contraseña: (vacía)");
-            return webServer;
-        } catch (java.sql.SQLException e) {
-            System.err.println("Error al iniciar H2 Console");
-            e.printStackTrace();
-            return null;
-        }
-    }
-
-    private static void pausar(Scanner scanner) {
-        System.out.print("Presiona ENTER para continuar...");
-        scanner.nextLine();
-    }
-
-    private static void detenerServidorH2() {
-        if (h2Server != null) {
-            h2Server.stop();
-        }
-    }
-
     public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
+        Scanner sc = new Scanner(System.in);
+        EntityManager manager = JPAUtil.getEntityManagerFactory().createEntityManager();
+        EntityTransaction transaccion = manager.getTransaction();
+
         try {
-            h2Server = iniciarServidorH2();
+            // Agregar datos si no hay registros existentes
+            transaccion.begin();
 
-            EntityManager em = JPAUtil.getEntityManagerFactory().createEntityManager();
-            EntityTransaction tx = em.getTransaction();
+            long clientesRegistrados = manager.createQuery("SELECT COUNT(c) FROM Cliente c", Long.class).getSingleResult();
+            if (clientesRegistrados == 0) {
+                manager.persist(new Cliente("Carlos Quispe", "Carlos.Quispe@mail.com"));
+                manager.persist(new Cliente("Karina Kalmet", "Karina.kal@mail.com"));
+                manager.persist(new Cliente("Rocio Zambrano", "Rocio.Zam@mail.com"));
+            }
 
-            // CREAR
-     
-            tx.begin();
+            long peliculasRegistradas = manager.createQuery("SELECT COUNT(p) FROM Pelicula p", Long.class).getSingleResult();
+            if (peliculasRegistradas == 0) {
+                manager.persist(new Pelicula("Corazon Valiente", "Drama", 10));
+                manager.persist(new Pelicula("Son como niños", "Familiar", 8));
+                manager.persist(new Pelicula("El pianista", "Drama", 6));
+            }
 
-            Cliente cliente = new Cliente("carlos quispe", "carlos@example.com");
-            Pelicula pelicula = new Pelicula("son como niños", "Comedia", 15);
-            em.persist(cliente);
-            em.persist(pelicula);
-            
+            transaccion.commit();
 
-            Cliente cliente2 = new Cliente("Ana Torres", "ana@example.com");
-            Pelicula pelicula2 = new Pelicula("Rápidos y Furiosos", "Acción", 18);
-            em.persist(cliente2);
-            em.persist(pelicula2);
+            // Mostrar clientes
+            List<Cliente> listaClientes = manager.createQuery("FROM Cliente", Cliente.class).getResultList();
+            System.out.println("== Registro exitoso ==");
+            for (int i = 0; i < listaClientes.size(); i++) {
+                System.out.printf("%d) %s\n", i + 1, listaClientes.get(i).getNombre());
+            }
 
-            // Tercer cliente y película
-            Cliente cliente3 = new Cliente("Luis Gómez", "luis@example.com");
-            Pelicula pelicula3 = new Pelicula("Titanic", "Romance", 12);
-            em.persist(cliente3);
-            em.persist(pelicula3);
-            
-            tx.commit();
+            System.out.print("Ingrese N° de cliente: ");
+            int posCliente = Integer.parseInt(sc.nextLine()) - 1;
 
-            System.out.println("Cliente y Película creados.");
-            pausar(scanner);
+            if (posCliente < 0 || posCliente >= listaClientes.size()) {
+                System.out.println("Cliente no existe.");
+                return;
+            }
 
-           
+            Cliente clienteElegido = listaClientes.get(posCliente);
 
+            // Mostrar películas
+            List<Pelicula> listaPeliculas = manager.createQuery("FROM Pelicula", Pelicula.class).getResultList();
+            System.out.println("\n=== Disponibilidad de Películas ===");
+            for (int i = 0; i < listaPeliculas.size(); i++) {
+                Pelicula peli = listaPeliculas.get(i);
+                System.out.printf("%d) %s - %s | Stock: %d\n", i + 1, peli.getTitulo(), peli.getGenero(), peli.getStock());
+            }
 
+            System.out.print("Seleccione una película: ");
+            int posPelicula = Integer.parseInt(sc.nextLine()) - 1;
 
+            if (posPelicula < 0 || posPelicula >= listaPeliculas.size()) {
+                System.out.println("Película no válida.");
+                return;
+            }
 
+            Pelicula peliElegida = listaPeliculas.get(posPelicula);
 
+            // Solicitar cantidad
+            System.out.print("Ingrese cuántas unidades desea alquilar: ");
+            int unidades = Integer.parseInt(sc.nextLine());
 
+            if (unidades <= 0) {
+                System.out.println("La cantidad debe ser mayor a cero.");
+                return;
+            }
 
+            if (unidades > peliElegida.getStock()) {
+                System.out.println("No hay suficiente stock disponible. Stock actual: " + peliElegida.getStock());
+                return;
+            }
 
+            // Registrar el alquiler
+            transaccion.begin();
 
+            Alquiler nuevo = new Alquiler();
+            nuevo.setCliente(clienteElegido);
+            nuevo.setFecha(LocalDate.now());
+            nuevo.setEstado(EstadoAlquiler.ACTIVO);
+            nuevo.setTotal(unidades);
+            manager.persist(nuevo);
 
-            em.close();
+            manager.flush(); // Genera el ID del alquiler antes de asociarlo con el detalle
+
+            DetalleAlquiler detalle = new DetalleAlquiler();
+            detalle.setAlquiler(nuevo);
+            detalle.setPelicula(peliElegida);
+            detalle.setCantidad(unidades);
+            detalle.setId(new DetalleAlquilerId(nuevo.getId(), peliElegida.getIdPelicula()));
+            manager.persist(detalle);
+
+            peliElegida.setStock(peliElegida.getStock() - unidades);
+            manager.merge(peliElegida);
+
+            transaccion.commit();
+
+            System.out.println("\nRegistro exitoso del alquiler");
+            System.out.println("Cliente: " + clienteElegido.getNombre());
+            System.out.println("Película alquilada: " + peliElegida.getTitulo());
+            System.out.println("Cantidad: " + unidades);
+            System.out.println("Stock actualizado: " + peliElegida.getStock());
 
         } catch (Exception e) {
+            if (transaccion.isActive()) {
+                transaccion.rollback();
+            }
+            System.out.println("Ocurrió un error durante el proceso.");
             e.printStackTrace();
         } finally {
+            manager.close();
             JPAUtil.shutdown();
-            detenerServidorH2();
-            System.out.println(">>> APLICACIÓN FINALIZADA <<<");
-            scanner.close();
+            sc.close();
+            System.out.println("\nFin de la ejecución del sistema.");
         }
     }
 }
